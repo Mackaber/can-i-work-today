@@ -1,0 +1,72 @@
+[
+  {
+    "id": "aws-us-east-1",
+    "name": "AWS (us-east-1)",
+    "category": "Cloud Provider",
+    "feed_url": "https://status.aws.amazon.com/rss/ec2-us-east-1.rss",
+    "type": "rss"
+  },
+  {
+    "id": "github",
+    "name": "GitHub",
+    "category": "Developer Tools",
+    "feed_url": "https://www.githubstatus.com/api/v2/status.json",
+    "type": "json"
+  },
+  {
+    "id": "google-cloud",
+    "name": "Google Cloud",
+    "category": "Cloud Provider",
+    "feed_url": "https://status.cloud.google.com/incidents.json",
+    "type": "json"
+  },
+  {
+    "id": "google-workspace",
+    "name": "Google Workspace",
+    "category": "Productivity",
+    "feed_url": "https://www.google.com/appsstatus/dashboard/incidents.json",
+    "type": "json"
+  },
+  {
+    "id": "cloudflare",
+    "name": "Cloudflare",
+    "category": "Cloud Provider",
+    "feed_url": "https://www.cloudflarestatus.com/api/v2/status.json",
+    "type": "json"
+  },
+  {
+    "id": "slack",
+    "name": "Slack",
+    "category": "Communication",
+    "feed_url": "https://status.slack.com/api/v2.0.0/current",
+    "type": "json"
+  },
+  {
+    "id": "openai",
+    "name": "OpenAI",
+    "category": "AI Services",
+    "feed_url": "https://status.openai.com/api/v2/status.json",
+    "type": "json"
+  },
+  {
+    "id": "vercel",
+    "name": "Vercel",
+    "category": "Developer Tools",
+    "feed_url": "https://www.vercel-status.com/api/v2/status.json",
+    "type": "json"
+  },
+  {
+    "id": "microsoft-365",
+    "name": "Microsoft 365",
+    "category": "Productivity",
+    "feed_url": "https://status.cloud.microsoft/api/v2/status.json",
+    "type": "json"
+  },
+  {
+    "id": "azure",
+    "name": "Microsoft Azure",
+    "category": "Cloud Provider",
+    "feed_url": "https://status.azure.com/en-us/status/feed/",
+    "type": "rss"
+  }
+]

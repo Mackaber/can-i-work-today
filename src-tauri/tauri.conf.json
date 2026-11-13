@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Can I Work Today",
+  "version": "0.1.0",
+  "identifier": "com.can-i-work-today.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Can I Work Today?",
+        "width": 370,
+        "height": 570,
+        "minWidth": 320,
+        "minHeight": 420,
+        "resizable": false,
+        "decorations": false,
+        "transparent": false,
+        "visible": false,
+        "center": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' asset: http://asset.localhost data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "msi", "appimage"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "Utility",
+    "shortDescription": "Know when your work tools are down.",
+    "longDescription": "A lightweight system tray app that monitors the health of the cloud and SaaS services you rely on."
+  }
+}
