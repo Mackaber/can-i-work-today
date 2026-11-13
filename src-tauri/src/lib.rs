@@ -23,7 +23,7 @@ mod parsing;
 use parsing::{json_path_segments, parse_json, parse_rss, xml_path_segments};
 
 const DEFAULT_POLL_INTERVAL_MINUTES: u64 = 10;
-const REGISTRY_JSON: &str = include_str!("../../registry.json");
+const REGISTRY_YAML: &str = include_str!("../../registry.yaml");
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct Service {
@@ -120,7 +120,7 @@ fn load_user_config(app: &AppHandle) -> Result<UserConfig, String> {
         }
     }
     let default_registry: Vec<Service> =
-        serde_json::from_str(REGISTRY_JSON).map_err(|error| error.to_string())?;
+        serde_yaml::from_str(REGISTRY_YAML).map_err(|error| error.to_string())?;
     let registry = merge_registry(&default_registry, &config.custom_registry)?;
     let known_ids: HashSet<&str> = registry.iter().map(|service| service.id.as_str()).collect();
     config
@@ -261,23 +261,28 @@ fn get_registry(state: State<'_, AppState>) -> Result<Vec<Service>, String> {
 }
 
 #[tauri::command]
-fn get_custom_registry(state: State<'_, AppState>) -> Result<Vec<Service>, String> {
+fn get_custom_registry(state: State<'_, AppState>) -> Result<String, String> {
     state
         .custom_registry
         .lock()
-        .map(|registry| registry.clone())
         .map_err(|_| "Custom service registry is unavailable".to_string())
+        .and_then(|registry| {
+            serde_yaml::to_string(&*registry)
+                .map_err(|error| format!("Could not serialize custom registry: {error}"))
+        })
 }
 
 #[tauri::command]
 fn set_custom_registry(
     app: AppHandle,
     state: State<'_, AppState>,
-    services: Vec<Service>,
+    contents: String,
 ) -> Result<(), String> {
+    let services: Vec<Service> = serde_yaml::from_str(&contents)
+        .map_err(|error| format!("Could not parse custom registry YAML: {error}"))?;
     validate_custom_registry(&services, false)?;
     let defaults: Vec<Service> =
-        serde_json::from_str(REGISTRY_JSON).map_err(|error| error.to_string())?;
+        serde_yaml::from_str(REGISTRY_YAML).map_err(|error| error.to_string())?;
     let registry = merge_registry(&defaults, &services)?;
     let mut monitored = state
         .monitored
@@ -646,7 +651,7 @@ fn update_tray_icon(app: &AppHandle, state: &AppState) {
 mod tests {
     use super::{
         merge_registry, parse_json, parse_rss, validate_custom_registry, Health, ParsingRules,
-        Service, REGISTRY_JSON,
+        Service, REGISTRY_YAML,
     };
 
     fn rules(items: &str, status: &str, regex: &str) -> ParsingRules {
@@ -689,6 +694,19 @@ mod tests {
     }
 
     #[test]
+    fn custom_registry_yaml_round_trips_including_empty_registry() {
+        let services = vec![service("custom", "Custom service")];
+        let contents = serde_yaml::to_string(&services).unwrap();
+        let parsed: Vec<Service> = serde_yaml::from_str(&contents).unwrap();
+        assert_eq!(parsed[0].id, "custom");
+        assert_eq!(parsed[0].name, "Custom service");
+
+        let empty_contents = serde_yaml::to_string(&Vec::<Service>::new()).unwrap();
+        let parsed_empty: Vec<Service> = serde_yaml::from_str(&empty_contents).unwrap();
+        assert!(parsed_empty.is_empty());
+    }
+
+    #[test]
     fn custom_registry_rejects_duplicate_ids_and_unsupported_feed_types() {
         let defaults = vec![service("default", "Default")];
         assert!(merge_registry(
@@ -707,7 +725,7 @@ mod tests {
 
     #[test]
     fn registry_rules_are_valid_and_cover_all_services() {
-        let services: Vec<Service> = serde_json::from_str(REGISTRY_JSON).unwrap();
+        let services: Vec<Service> = serde_yaml::from_str(REGISTRY_YAML).unwrap();
         validate_custom_registry(&services, false).unwrap();
         assert!(services
             .iter()
@@ -716,18 +734,63 @@ mod tests {
 
     #[test]
     fn built_in_rules_interpret_representative_feed_shapes() {
-        let services: Vec<Service> = serde_json::from_str(REGISTRY_JSON).unwrap();
+        let services: Vec<Service> = serde_yaml::from_str(REGISTRY_YAML).unwrap();
         let cases = [
-            ("aws-us-east-1", "<rss><channel><item><title>Service disruption</title></item></channel></rss>", "<rss><channel/></rss>"),
-            ("github", r#"{"status":{"indicator":"major"}}"#, r#"{"status":{"indicator":"none"}}"#),
-            ("google-cloud", r#"[{"end":null,"most_recent_update":{"status":"SERVICE_OUTAGE"}}]"#, r#"[{"end":"2026-01-01","most_recent_update":{"status":"SERVICE_OUTAGE"}}]"#),
-            ("google-workspace", r#"[{"end":null,"most_recent_update":{"status":"SERVICE_DISRUPTION"}}]"#, r#"[{"end":"2026-01-01","most_recent_update":{"status":"SERVICE_DISRUPTION"}}]"#),
-            ("cloudflare", r#"{"status":{"indicator":"minor"}}"#, r#"{"status":{"indicator":"none"}}"#),
-            ("slack", r#"{"status":"active","active_incidents":[]}"#, r#"{"status":"ok","active_incidents":[]}"#),
-            ("openai", r#"{"status":{"indicator":"critical"}}"#, r#"{"status":{"indicator":"none"}}"#),
-            ("vercel", r#"{"status":{"indicator":"major"}}"#, r#"{"status":{"indicator":"none"}}"#),
-            ("microsoft-365", "<rss><channel><item><description>User impact: Users cannot connect</description></item></channel></rss>", "<rss><channel/></rss>"),
-            ("azure", "<rss><channel><item><title>Service outage</title></item></channel></rss>", "<rss><channel/></rss>"),
+            (
+                "aws-us-east-1",
+                "<rss><channel><item><title>Service disruption</title></item></channel></rss>",
+                "<rss><channel/></rss>",
+            ),
+            (
+                "github",
+                r#"{"status":{"indicator":"major"}}"#,
+                r#"{"status":{"indicator":"none"}}"#,
+            ),
+            (
+                "google-cloud",
+                r#"[{"end":null,"most_recent_update":{"status":"SERVICE_OUTAGE"}}]"#,
+                r#"[{"end":"2026-01-01","most_recent_update":{"status":"SERVICE_OUTAGE"}}]"#,
+            ),
+            (
+                "google-workspace",
+                r#"[{"end":null,"most_recent_update":{"status":"SERVICE_DISRUPTION"}}]"#,
+                r#"[{"end":"2026-01-01","most_recent_update":{"status":"SERVICE_DISRUPTION"}}]"#,
+            ),
+            (
+                "cloudflare",
+                r#"{"status":{"indicator":"minor"}}"#,
+                r#"{"status":{"indicator":"none"}}"#,
+            ),
+            (
+                "slack",
+                r#"{"status":"active","active_incidents":[]}"#,
+                r#"{"status":"ok","active_incidents":[]}"#,
+            ),
+            (
+                "openai",
+                r#"{"status":{"indicator":"critical"}}"#,
+                r#"{"status":{"indicator":"none"}}"#,
+            ),
+            (
+                "vercel",
+                r#"{"status":{"indicator":"major"}}"#,
+                r#"{"status":{"indicator":"none"}}"#,
+            ),
+            (
+                "microsoft-365",
+                "<rss><channel><item><status>ServiceDegradation</status></item></channel></rss>",
+                "<rss><channel/></rss>",
+            ),
+            (
+                "azure",
+                "<rss><channel><item><title>Service outage</title></item></channel></rss>",
+                "<rss><channel/></rss>",
+            ),
+            (
+                "canva",
+                r#"{"status":{"indicator":"critical"}}"#,
+                r#"{"status":{"indicator":"none"}}"#,
+            ),
         ];
         assert_eq!(cases.len(), services.len());
         for (id, degraded, healthy) in cases {
@@ -1016,7 +1079,7 @@ fn show_status_window(app: &AppHandle) {
 
 pub fn run() {
     let default_registry: Vec<Service> =
-        serde_json::from_str(REGISTRY_JSON).expect("registry.json must be valid");
+        serde_yaml::from_str(REGISTRY_YAML).expect("registry.yaml must be valid");
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())

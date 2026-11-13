@@ -8,7 +8,7 @@
 *   **Backend (Core Logic & OS Integration):** Rust
 *   **Frontend (UI/Tray Flyout):** React + TypeScript + Tailwind CSS (via Vite)
 *   **Cross-Platform Targets:** macOS (.dmg), Windows (.msi/.exe), Linux (.AppImage)
-*   **Data Source (Registry):** A static `registry.json` hosted via GitHub Pages containing service definitions and feed URLs.
+* **Data Source (Registry):** A static `registry.yaml` hosted via GitHub Pages containing service definitions and feed URLs.
 *   **Local Storage:** `tauri-plugin-store` (for saving the user's selected services).
 
 ## 3. UI/UX Flow (System Tray Only)
@@ -21,24 +21,18 @@ The application runs entirely in the system tray (no main window).
 
 ## 4. Data Models
 
-### 4.1. Remote Registry Schema (`registry.json`)
-```json
-[
-  {
-    "id": "aws-us-east-1",
-    "name": "AWS (us-east-1)",
-    "category": "Cloud Provider",
-    "feed_url": "https://status.aws.amazon.com/rss/ec2-us-east-1.rss",
-    "type": "rss"
-  },
-  {
-    "id": "google-workspace",
-    "name": "Google Workspace",
-    "category": "SaaS",
-    "feed_url": "https://www.google.com/appsstatus/dashboard/incidents.json",
-    "type": "json"
-  }
-]
+### 4.1. Registry Schema (`registry.yaml`)
+```yaml
+- id: aws-us-east-1
+  name: AWS (us-east-1)
+  category: Cloud Provider
+  feed_url: https://status.aws.amazon.com/rss/ec2-us-east-1.rss
+  type: rss
+- id: google-workspace
+  name: Google Workspace
+  category: SaaS
+  feed_url: https://www.google.com/appsstatus/dashboard/incidents.json
+  type: json
 ```
 
 ### 4.2. Local User State (Tauri Store)
@@ -58,7 +52,7 @@ The application runs entirely in the system tray (no main window).
 *   [ ] Install frontend dependencies: `tailwindcss`, `lucide-react` (icons), `downshift` or similar for the autocomplete component.
 
 ### Phase 2: Rust Backend (The Core Engine)
-*   [ ] Implement a service struct and JSON parser to fetch and cache the static `registry.json` from a public URL.
+* [ ] Implement a service struct and YAML parser to fetch and cache the static `registry.yaml` from a public URL.
 *   [ ] Create a polling loop using `tokio::time::interval` that runs every 10 minutes.
 *   [ ] Implement XML/RSS and JSON parsers for the feeds to determine if a service is "healthy" or "degraded".
 *   [ ] Integrate `tauri::SystemTray` to render the tray icon. Add logic to swap the icon asset between Green and Red based on polling results.

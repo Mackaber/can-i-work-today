@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { json } from "@codemirror/lang-json";
+import { yaml } from "@codemirror/lang-yaml";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { basicSetup, EditorView } from "codemirror";
 
@@ -17,9 +17,8 @@ function RegistryEditor() {
 
   useEffect(() => {
     let cancelled = false;
-    void invoke<unknown>("get_custom_registry").then((services) => {
+    void invoke<string>("get_custom_registry").then((contents) => {
       if (cancelled) return;
-      const contents = JSON.stringify(services, null, 2);
       setInitialDocument(contents);
       setDocument(contents);
       setSavedDocument(contents);
@@ -39,9 +38,9 @@ function RegistryEditor() {
       parent: editorElement.current,
       extensions: [
         basicSetup,
-        json(),
+        yaml(),
         oneDark,
-        EditorView.contentAttributes.of({ "aria-label": "Custom registry JSON" }),
+        EditorView.contentAttributes.of({ "aria-label": "Custom registry YAML" }),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) setDocument(update.state.doc.toString());
         }),
@@ -57,21 +56,10 @@ function RegistryEditor() {
   async function save() {
     if (!editor.current || savingRef.current) return;
     const contents = editor.current.state.doc.toString();
-    let services: unknown;
-    try {
-      services = JSON.parse(contents);
-      if (!Array.isArray(services)) {
-        throw new Error("The registry must be a JSON array.");
-      }
-    } catch (reason) {
-      setError(`Could not save custom registry: ${String(reason)}`);
-      return;
-    }
-
     savingRef.current = true;
     setSaving(true);
     try {
-      await invoke("set_custom_registry", { services });
+      await invoke("set_custom_registry", { contents });
       setSavedDocument(contents);
       setError("");
     } catch (reason) {
@@ -96,7 +84,7 @@ function RegistryEditor() {
         <div>
           <p className="eyebrow">CAN I WORK TODAY</p>
           <h1>Custom registry</h1>
-          <p>Edit the JSON array of services to add or override.</p>
+          <p>Edit the YAML list of services to add or override.</p>
         </div>
         <button
           type="button"
