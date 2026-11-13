@@ -17,7 +17,7 @@ npm install
 npm run tauri dev
 ```
 
-The app starts hidden in the tray. Choose **Open status** from its tray menu (or left-click the tray icon) to open the flyout. Add services using the plus button. The Settings menu changes the polling interval (5, 10, 15, or 30 minutes) and lets you edit a custom service registry; selected services and preferences are persisted in the platform's application config directory.
+The app starts hidden in the tray. Choose **Open status** from its tray menu (or left-click the tray icon on macOS and Windows) to open the window. Use its native title bar to move or resize it; closing the window hides it in the tray. The window stays open when it loses focus, while the Settings panel closes when you click elsewhere. Add services using the plus button. The Settings menu changes the polling interval (5, 10, 15, or 30 minutes) and lets you edit a custom service registry; selected services and preferences are persisted in the platform's application config directory.
 
 ## Service registry
 

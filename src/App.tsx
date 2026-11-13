@@ -49,14 +49,7 @@ function App() {
   const [error, setError] = useState("");
   const [isFocused, setIsFocused] = useState(true);
   const searchRef = useRef<HTMLInputElement>(null);
-
-  async function hideFlyout() {
-    try {
-      await getCurrentWindow().hide();
-    } catch (reason) {
-      setError(`Could not close the flyout: ${String(reason)}`);
-    }
-  }
+  const settingsRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -91,6 +84,8 @@ function App() {
         if (payload) {
           void refreshRegistry();
           void refresh();
+        } else {
+          setSettingsOpen(false);
         }
       }),
     ]).then(([, , , stopListening]) => {
@@ -104,6 +99,17 @@ function App() {
       unlisten?.();
     };
   }, [refresh, refreshRegistry]);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    function dismissSettings(event: PointerEvent) {
+      if (event.target instanceof Node && !settingsRef.current?.contains(event.target)) {
+        setSettingsOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", dismissSettings);
+    return () => document.removeEventListener("pointerdown", dismissSettings);
+  }, [settingsOpen]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -260,9 +266,6 @@ function App() {
           <Cloud size={18} strokeWidth={2.2} />
         </div>
         <span className="brand-name">CAN I WORK TODAY</span>
-        <button className="icon-button close-button" aria-label="Close window" onClick={() => void hideFlyout()}>
-          <X size={16} />
-        </button>
       </header>
 
       <section className={`summary-card ${hasOutage ? "summary-card--outage" : ""}`}>
@@ -427,7 +430,7 @@ function App() {
       <footer className="footer">
         <span className="refresh-note"><span className="live-dot" /> Updates every {pollInterval} minutes</span>
         <div className="footer-actions">
-          <div className="settings-wrap">
+          <div className="settings-wrap" ref={settingsRef}>
             <button
               className="footer-button"
               onClick={() => setSettingsOpen((open) => !open)}

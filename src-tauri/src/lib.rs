@@ -997,6 +997,23 @@ async fn poll_services(app: AppHandle) {
     }
 }
 
+fn show_status_window(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        eprintln!("Could not find status window");
+        return;
+    };
+    if let Err(error) = window.show() {
+        eprintln!("Could not show status window: {error}");
+        return;
+    }
+    if let Err(error) = window.unminimize() {
+        eprintln!("Could not restore status window: {error}");
+    }
+    if let Err(error) = window.set_focus() {
+        eprintln!("Could not focus status window: {error}");
+    }
+}
+
 pub fn run() {
     let default_registry: Vec<Service> =
         serde_json::from_str(REGISTRY_JSON).expect("registry.json must be valid");
@@ -1045,16 +1062,7 @@ pub fn run() {
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {
-                    "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            if let Err(error) = window.show() {
-                                eprintln!("Could not show status window: {error}");
-                            }
-                            if let Err(error) = window.set_focus() {
-                                eprintln!("Could not focus status window: {error}");
-                            }
-                        }
-                    }
+                    "show" => show_status_window(app),
                     "quit" => app.exit(0),
                     _ => {}
                 })
@@ -1065,14 +1073,7 @@ pub fn run() {
                         ..
                     } = event
                     {
-                        if let Some(window) = tray.app_handle().get_webview_window("main") {
-                            if let Err(error) = window.show() {
-                                eprintln!("Could not show status window: {error}");
-                            }
-                            if let Err(error) = window.set_focus() {
-                                eprintln!("Could not focus status window: {error}");
-                            }
-                        }
+                        show_status_window(tray.app_handle());
                     }
                 })
                 .build(app)?;
@@ -1082,15 +1083,11 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if window.label() == "main" && matches!(event, tauri::WindowEvent::Focused(false)) {
-                if let Err(error) = window.hide() {
-                    eprintln!("Could not hide status window: {error}");
-                }
-            } else if window.label() == "registry-editor" {
+            if window.label() == "main" || window.label() == "registry-editor" {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     if let Err(error) = window.hide() {
-                        eprintln!("Could not hide registry editor: {error}");
+                        eprintln!("Could not hide {} window: {error}", window.label());
                     }
                 }
             }

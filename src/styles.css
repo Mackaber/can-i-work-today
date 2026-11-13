@@ -45,7 +45,6 @@ button { color: inherit; }
   align-items: center;
   gap: 9px;
   margin-bottom: 20px;
-  -webkit-app-region: drag;
 }
 
 .brand-mark {
@@ -76,8 +75,7 @@ button { color: inherit; }
   transition: color .16s ease, background .16s ease;
 }
 
-.close-button { margin-left: auto; width: 28px; height: 28px; border-radius: 7px; -webkit-app-region: no-drag; }
-.close-button:hover, .remove-button:hover { color: #e4e9f1; background: rgba(255,255,255,.07); }
+.remove-button:hover { color: #e4e9f1; background: rgba(255,255,255,.07); }
 
 .summary-card {
   display: flex;
