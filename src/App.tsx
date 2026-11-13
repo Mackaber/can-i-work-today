@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Check, ChevronDown, CircleAlert, Cloud, LoaderCircle, Minus, Plus, RefreshCw, Search, Settings2, X } from "lucide-react";
+import { Check, ChevronDown, CircleAlert, Cloud, LoaderCircle, Minus, MessageCircleQuestion, Plus, RefreshCw, Search, Settings2, X } from "lucide-react";
 
 type Service = {
   id: string;
@@ -270,7 +270,7 @@ function App() {
 
       <section className={`summary-card ${hasOutage ? "summary-card--outage" : ""}`}>
         <div className={`summary-icon ${hasOutage ? "summary-icon--outage" : allHealthy ? "summary-icon--healthy" : ""}`}>
-          {hasOutage ? <CircleAlert size={20} /> : allHealthy ? <Check size={20} /> : <LoaderCircle className="spin" size={20} />}
+          {hasOutage ? <CircleAlert size={20} /> : allHealthy ? <Check size={20} /> : <MessageCircleQuestion size={20} />}
         </div>
         <div>
           <p className="eyebrow">{hasOutage ? "STATUS ALERT" : "YOUR WORKDAY CHECK"}</p>

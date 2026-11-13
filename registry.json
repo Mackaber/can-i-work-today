@@ -130,5 +130,18 @@
       "status_path": "title",
       "degraded_regex": "(?i)disruption|error|degradation|outage|issue|incident"
     }
+  },
+  {
+    "id": "canva",
+    "name": "Canva",
+    "category": "Design Tools",
+    "feed_url": "https://www.canvastatus.com/api/v2/status.json",
+    "status_url": "https://www.canvastatus.com/",
+    "type": "json",
+    "parsing_rules": {
+      "items_path": "$.status",
+      "status_path": "indicator",
+      "degraded_regex": "(?i)minor|major|critical|maintenance"
+    }
   }
 ]
