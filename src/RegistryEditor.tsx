@@ -108,7 +108,8 @@ function RegistryEditor() {
         </button>
       </header>
       <p className="registry-help">
-        Each service needs id, name, category, feed_url, status_url, and type (rss or json).
+        Each service needs id, name, category, feed_url, status_url, type (rss or json),
+        and parsing_rules with items_path, status_path, and degraded_regex.
         Matching IDs replace built-in entries; new IDs are added.
       </p>
       {initialDocument === null ? (

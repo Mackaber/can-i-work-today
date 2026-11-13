@@ -1,8 +1,7 @@
 use chrono::{DateTime, Utc};
+use regex::Regex;
 use reqwest::Client;
-use roxmltree::Document;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -20,6 +19,9 @@ use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::Notify;
 
+mod parsing;
+use parsing::{json_path_segments, parse_json, parse_rss, xml_path_segments};
+
 const DEFAULT_POLL_INTERVAL_MINUTES: u64 = 10;
 const REGISTRY_JSON: &str = include_str!("../../registry.json");
 
@@ -32,6 +34,17 @@ struct Service {
     status_url: String,
     #[serde(rename = "type")]
     feed_type: String,
+    #[serde(default)]
+    parsing_rules: ParsingRules,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+struct ParsingRules {
+    items_path: String,
+    status_path: String,
+    degraded_regex: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    end_path: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -98,6 +111,14 @@ fn load_user_config(app: &AppHandle) -> Result<UserConfig, String> {
         fs::read_to_string(&path).map_err(|error| format!("Could not read settings: {error}"))?;
     let mut config: UserConfig = serde_json::from_str(&contents)
         .map_err(|error| format!("Could not parse settings: {error}"))?;
+    for service in &config.custom_registry {
+        if service.parsing_rules.is_missing() {
+            eprintln!(
+                "Custom service {} needs parsing_rules; its status will be unknown until updated",
+                service.id
+            );
+        }
+    }
     let default_registry: Vec<Service> =
         serde_json::from_str(REGISTRY_JSON).map_err(|error| error.to_string())?;
     let registry = merge_registry(&default_registry, &config.custom_registry)?;
@@ -136,7 +157,44 @@ fn save_user_config(
     fs::rename(&temporary_path, &path).map_err(|error| format!("Could not save settings: {error}"))
 }
 
-fn validate_custom_registry(services: &[Service]) -> Result<(), String> {
+impl ParsingRules {
+    fn is_missing(&self) -> bool {
+        self.items_path.is_empty()
+            && self.status_path.is_empty()
+            && self.degraded_regex.is_empty()
+            && self.end_path.is_none()
+    }
+
+    fn validate(&self, feed_type: &str) -> Result<(), String> {
+        if self.items_path.trim().is_empty()
+            || self.status_path.trim().is_empty()
+            || self.degraded_regex.trim().is_empty()
+        {
+            return Err(
+                "parsing_rules requires non-empty items_path, status_path, and degraded_regex"
+                    .to_string(),
+            );
+        }
+        Regex::new(&self.degraded_regex)
+            .map_err(|error| format!("Invalid degraded_regex: {error}"))?;
+        if feed_type == "json" {
+            json_path_segments(&self.items_path, true)?;
+            json_path_segments(&self.status_path, false)?;
+            if let Some(path) = &self.end_path {
+                json_path_segments(path, false)?;
+            }
+        } else {
+            xml_path_segments(&self.items_path, true)?;
+            xml_path_segments(&self.status_path, false)?;
+            if self.end_path.is_some() {
+                return Err("end_path is only supported for JSON feeds".to_string());
+            }
+        }
+        Ok(())
+    }
+}
+
+fn validate_custom_registry(services: &[Service], allow_legacy: bool) -> Result<(), String> {
     let mut ids = HashSet::new();
     for service in services {
         if service.id.trim().is_empty()
@@ -153,6 +211,12 @@ fn validate_custom_registry(services: &[Service]) -> Result<(), String> {
                 service.id, service.feed_type
             ));
         }
+        if !(allow_legacy && service.parsing_rules.is_missing()) {
+            service
+                .parsing_rules
+                .validate(&service.feed_type)
+                .map_err(|error| format!("Invalid parsing rules for {}: {error}", service.id))?;
+        }
         if !ids.insert(&service.id) {
             return Err(format!(
                 "Custom registry contains duplicate service id: {}",
@@ -164,7 +228,7 @@ fn validate_custom_registry(services: &[Service]) -> Result<(), String> {
 }
 
 fn merge_registry(defaults: &[Service], custom: &[Service]) -> Result<Vec<Service>, String> {
-    validate_custom_registry(custom)?;
+    validate_custom_registry(custom, true)?;
     let mut merged = defaults.to_vec();
     for service in custom {
         if let Some(existing) = merged.iter_mut().find(|item| item.id == service.id) {
@@ -211,6 +275,7 @@ fn set_custom_registry(
     state: State<'_, AppState>,
     services: Vec<Service>,
 ) -> Result<(), String> {
+    validate_custom_registry(&services, false)?;
     let defaults: Vec<Service> =
         serde_json::from_str(REGISTRY_JSON).map_err(|error| error.to_string())?;
     let registry = merge_registry(&defaults, &services)?;
@@ -503,10 +568,10 @@ async fn check_service(client: &Client, service: &Service) -> ServiceStatus {
         }
     };
 
-    let result = if service.feed_type == "rss" {
-        parse_rss(&body)
-    } else {
-        parse_json(&body)
+    let result = match service.feed_type.as_str() {
+        "rss" => parse_rss(&body, &service.parsing_rules),
+        "json" => parse_json(&body, &service.parsing_rules),
+        other => Err(format!("Unsupported feed type: {other}")),
     };
     match result {
         Ok((Health::Healthy, detail)) => status_for(service, Health::Healthy, detail),
@@ -517,222 +582,6 @@ async fn check_service(client: &Client, service: &Service) -> ServiceStatus {
             Health::Unknown,
             format!("Could not interpret status feed: {error}"),
         ),
-    }
-}
-
-fn parse_json(body: &str) -> Result<(Health, String), String> {
-    let value: Value = serde_json::from_str(body).map_err(|error| error.to_string())?;
-
-    if let Some(indicator) = value
-        .get("status")
-        .and_then(|status| status.get("indicator"))
-        .and_then(Value::as_str)
-    {
-        let description = value
-            .get("status")
-            .and_then(|status| status.get("description"))
-            .and_then(Value::as_str)
-            .unwrap_or(indicator);
-        return Ok((indicator_health(indicator), description.to_string()));
-    }
-
-    if let Some(status) = value.get("status").and_then(Value::as_str) {
-        let health = indicator_health(status);
-        if health != Health::Unknown {
-            return Ok((health, status.to_string()));
-        }
-    }
-
-    let has_incident_list = match &value {
-        Value::Array(_) => true,
-        Value::Object(object) => ["incidents", "activeIncidents", "active_incidents"]
-            .iter()
-            .any(|key| object.get(*key).is_some_and(Value::is_array)),
-        _ => false,
-    };
-    if !has_incident_list {
-        return Err("unrecognized JSON status format".to_string());
-    }
-
-    let mut active_incidents = Vec::new();
-    let mut unknown_incident = false;
-    collect_active_incidents(&value, &mut active_incidents, &mut unknown_incident);
-    if !active_incidents.is_empty() {
-        Ok((
-            Health::Degraded,
-            active_incidents
-                .into_iter()
-                .take(2)
-                .collect::<Vec<_>>()
-                .join("; "),
-        ))
-    } else if unknown_incident {
-        Ok((
-            Health::Unknown,
-            "Incident status could not be interpreted".to_string(),
-        ))
-    } else {
-        Ok((Health::Healthy, "No active incidents reported".to_string()))
-    }
-}
-
-fn collect_active_incidents(value: &Value, incidents: &mut Vec<String>, unknown: &mut bool) {
-    match value {
-        Value::Array(values) => {
-            for value in values {
-                collect_active_incidents(value, incidents, unknown);
-            }
-        }
-        Value::Object(object) => {
-            let ended = ["end", "endTime", "end_time"].iter().any(|key| {
-                object
-                    .get(*key)
-                    .is_some_and(|end| !end.is_null() && end.as_str() != Some(""))
-            });
-            let status = object
-                .get("status")
-                .or_else(|| object.get("state"))
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            let status_health = indicator_health(status);
-            let severity = object
-                .get("severity")
-                .or_else(|| object.get("impact"))
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            let severity_health = indicator_health(severity);
-            if !ended && (status_health == Health::Degraded || severity_health == Health::Degraded)
-            {
-                let summary = object
-                    .get("name")
-                    .or_else(|| object.get("title"))
-                    .or_else(|| object.get("summary"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("Active incident");
-                incidents.push(summary.to_string());
-                return;
-            }
-            if !ended
-                && (object.contains_key("status")
-                    || object.contains_key("state")
-                    || object.contains_key("severity")
-                    || object.contains_key("impact"))
-                && status_health == Health::Unknown
-                && severity_health == Health::Unknown
-            {
-                *unknown = true;
-            }
-            for child in object.values() {
-                collect_active_incidents(child, incidents, unknown);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn indicator_health(indicator: &str) -> Health {
-    let value = indicator.to_ascii_lowercase();
-    if value.contains("no active")
-        || value.contains("no incident")
-        || value.contains("no known issue")
-    {
-        return Health::Healthy;
-    }
-    if [
-        "operational",
-        "healthy",
-        "none",
-        "resolved",
-        "ok",
-        "up",
-        "no incidents",
-        "available",
-    ]
-    .iter()
-    .any(|word| value == *word || value.contains(word))
-    {
-        Health::Healthy
-    } else if [
-        "degraded",
-        "minor",
-        "major",
-        "critical",
-        "outage",
-        "disruption",
-        "partial",
-        "investigating",
-        "identified",
-        "monitoring",
-        "ongoing",
-        "active",
-        "high",
-        "error rate",
-        "latency",
-        "unavailable",
-        "service impact",
-        "experiencing issues",
-        "down",
-    ]
-    .iter()
-    .any(|word| value.contains(word))
-    {
-        Health::Degraded
-    } else {
-        Health::Unknown
-    }
-}
-
-fn parse_rss(body: &str) -> Result<(Health, String), String> {
-    let document = Document::parse(body).map_err(|error| error.to_string())?;
-    if !document
-        .descendants()
-        .any(|node| node.has_tag_name("channel"))
-    {
-        return Err("RSS channel is missing".to_string());
-    }
-    let items: Vec<_> = document
-        .descendants()
-        .filter(|node| node.has_tag_name("item"))
-        .collect();
-    let mut active = Vec::new();
-    let mut unknown = false;
-    for item in items {
-        let title = item
-            .children()
-            .find(|node| node.has_tag_name("title"))
-            .and_then(|node| node.text())
-            .unwrap_or("Service incident");
-        let description = item
-            .children()
-            .find(|node| node.has_tag_name("description"))
-            .and_then(|node| node.text())
-            .unwrap_or("");
-        let combined = format!("{title} {description}");
-        let lowered = combined.to_ascii_lowercase();
-        if ["resolved", "completed", "closed", "fully restored"]
-            .iter()
-            .any(|word| lowered.contains(word))
-        {
-            continue;
-        }
-        if indicator_health(&combined) == Health::Degraded {
-            active.push(title.trim().to_string());
-        } else if indicator_health(&combined) == Health::Unknown {
-            unknown = true;
-        }
-    }
-    if !active.is_empty() {
-        Ok((
-            Health::Degraded,
-            active.into_iter().take(2).collect::<Vec<_>>().join("; "),
-        ))
-    } else if unknown {
-        Ok((
-            Health::Unknown,
-            "Incident status could not be interpreted".to_string(),
-        ))
-    } else {
-        Ok((Health::Healthy, "No active incidents reported".to_string()))
     }
 }
 
@@ -795,7 +644,19 @@ fn update_tray_icon(app: &AppHandle, state: &AppState) {
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_registry, parse_json, parse_rss, Health, Service};
+    use super::{
+        merge_registry, parse_json, parse_rss, validate_custom_registry, Health, ParsingRules,
+        Service, REGISTRY_JSON,
+    };
+
+    fn rules(items: &str, status: &str, regex: &str) -> ParsingRules {
+        ParsingRules {
+            items_path: items.to_string(),
+            status_path: status.to_string(),
+            degraded_regex: regex.to_string(),
+            end_path: None,
+        }
+    }
 
     fn service(id: &str, name: &str) -> Service {
         Service {
@@ -805,6 +666,7 @@ mod tests {
             feed_url: "https://example.com/feed".to_string(),
             status_url: "https://example.com/status".to_string(),
             feed_type: "json".to_string(),
+            parsing_rules: rules("$.incidents", "status", "(?i)outage"),
         }
     }
 
@@ -844,70 +706,195 @@ mod tests {
     }
 
     #[test]
-    fn statuspage_indicator_is_respected() {
+    fn registry_rules_are_valid_and_cover_all_services() {
+        let services: Vec<Service> = serde_json::from_str(REGISTRY_JSON).unwrap();
+        validate_custom_registry(&services, false).unwrap();
+        assert!(services
+            .iter()
+            .all(|service| !service.parsing_rules.is_missing()));
+    }
+
+    #[test]
+    fn built_in_rules_interpret_representative_feed_shapes() {
+        let services: Vec<Service> = serde_json::from_str(REGISTRY_JSON).unwrap();
+        let cases = [
+            ("aws-us-east-1", "<rss><channel><item><title>Service disruption</title></item></channel></rss>", "<rss><channel/></rss>"),
+            ("github", r#"{"status":{"indicator":"major"}}"#, r#"{"status":{"indicator":"none"}}"#),
+            ("google-cloud", r#"[{"end":null,"most_recent_update":{"status":"SERVICE_OUTAGE"}}]"#, r#"[{"end":"2026-01-01","most_recent_update":{"status":"SERVICE_OUTAGE"}}]"#),
+            ("google-workspace", r#"[{"end":null,"most_recent_update":{"status":"SERVICE_DISRUPTION"}}]"#, r#"[{"end":"2026-01-01","most_recent_update":{"status":"SERVICE_DISRUPTION"}}]"#),
+            ("cloudflare", r#"{"status":{"indicator":"minor"}}"#, r#"{"status":{"indicator":"none"}}"#),
+            ("slack", r#"{"status":"active","active_incidents":[]}"#, r#"{"status":"ok","active_incidents":[]}"#),
+            ("openai", r#"{"status":{"indicator":"critical"}}"#, r#"{"status":{"indicator":"none"}}"#),
+            ("vercel", r#"{"status":{"indicator":"major"}}"#, r#"{"status":{"indicator":"none"}}"#),
+            ("microsoft-365", "<rss><channel><item><description>User impact: Users cannot connect</description></item></channel></rss>", "<rss><channel/></rss>"),
+            ("azure", "<rss><channel><item><title>Service outage</title></item></channel></rss>", "<rss><channel/></rss>"),
+        ];
+        assert_eq!(cases.len(), services.len());
+        for (id, degraded, healthy) in cases {
+            let service = services.iter().find(|service| service.id == id).unwrap();
+            let parse = if service.feed_type == "rss" {
+                parse_rss
+            } else {
+                parse_json
+            };
+            assert_eq!(
+                parse(degraded, &service.parsing_rules).unwrap().0,
+                Health::Degraded,
+                "{id}"
+            );
+            assert_eq!(
+                parse(healthy, &service.parsing_rules).unwrap().0,
+                Health::Healthy,
+                "{id}"
+            );
+        }
+    }
+
+    #[test]
+    fn json_rules_select_status_dynamically() {
+        let status_rules = rules("$.status", "indicator", "(?i)^(major|minor|critical)$");
         assert_eq!(
             parse_json(
-                r#"{"status":{"indicator":"none","description":"All Systems Operational"}}"#
+                r#"{"status":{"indicator":"none","description":"All Systems Operational"}}"#,
+                &status_rules,
             )
             .unwrap()
             .0,
             Health::Healthy
         );
         assert_eq!(
-            parse_json(r#"{"status":{"indicator":"major_outage","description":"Major outage"}}"#)
+            parse_json(
+                r#"{"status":{"indicator":"major","description":"Major outage"}}"#,
+                &status_rules
+            )
+            .unwrap()
+            .0,
+            Health::Degraded
+        );
+        let custom = rules("$.events", "details.condition", "(?i)red");
+        assert_eq!(
+            parse_json(
+                r#"{"events":[{"details":{"condition":"RED"}},{"details":{"condition":"green"}}]}"#,
+                &custom
+            )
+            .unwrap()
+            .0,
+            Health::Degraded
+        );
+        assert_eq!(
+            parse_json(r#"{"events":[]}"#, &custom).unwrap().0,
+            Health::Healthy
+        );
+        assert_eq!(
+            parse_json(r#"{"events":[{"details":{}}]}"#, &custom)
                 .unwrap()
                 .0,
+            Health::Unknown
+        );
+        assert_eq!(
+            parse_json(
+                r#"{"events":[{},{"details":{"condition":"red"}}]}"#,
+                &custom
+            )
+            .unwrap()
+            .0,
             Health::Degraded
         );
     }
 
     #[test]
     fn incident_feeds_ignore_resolved_incidents() {
-        let body = r#"[{"status":"SERVICE_OUTAGE","end":null,"title":"API outage"},{"status":"SERVICE_OUTAGE","end":"2026-01-01T00:00:00Z","title":"Old outage"}]"#;
-        let result = parse_json(body).unwrap();
+        let mut rules = rules("$", "state", "(?i)outage");
+        rules.end_path = Some("end".to_string());
+        let body =
+            r#"[{"state":"outage","end":null},{"state":"outage","end":"2026-01-01T00:00:00Z"}]"#;
+        let result = parse_json(body, &rules).unwrap();
         assert_eq!(result.0, Health::Degraded);
-        assert_eq!(result.1, "API outage");
+        assert_eq!(result.1, "outage");
 
         assert_eq!(
-            parse_json(r#"[{"status":"SERVICE_OUTAGE","end":"2026-01-01T00:00:00Z"}]"#)
-                .unwrap()
-                .0,
+            parse_json(
+                r#"[{"state":"outage","end":"2026-01-01T00:00:00Z"}]"#,
+                &rules
+            )
+            .unwrap()
+            .0,
             Health::Healthy
         );
         assert_eq!(
-            parse_json(r#"[{"status":"SERVICE_OUTAGE","endTime":"2026-01-01T00:00:00Z"}]"#)
-                .unwrap()
-                .0,
-            Health::Healthy
-        );
-        assert_eq!(
-            parse_json(r#"[{"status":"unexpected","title":"Unknown incident"}]"#)
-                .unwrap()
-                .0,
+            parse_json(r#"[{"state":"outage"}]"#, &rules).unwrap().0,
             Health::Unknown
         );
     }
 
     #[test]
     fn unknown_json_and_non_rss_xml_do_not_report_healthy() {
-        assert!(parse_json(r#"{"message":"not a status feed"}"#).is_err());
-        assert!(parse_rss("<root><item><title>unrelated</title></item></root>").is_err());
+        let json = rules("$.incidents", "status", "outage");
+        let rss = rules("//item", "title", "outage");
+        assert!(parse_json(r#"{"message":"not a status feed"}"#, &json).is_err());
+        assert!(parse_json(r#"{"incidents":"bad"}"#, &json).is_err());
+        assert!(parse_rss("<root><item><title>unrelated</title></item></root>", &rss).is_err());
+        assert!(parse_rss("<rss>", &rss).is_err());
     }
 
     #[test]
-    fn rss_without_incidents_is_healthy() {
+    fn rss_rules_select_configured_nodes() {
+        let rss = rules("//channel/item", "details/state", "(?i)outage");
         assert_eq!(
-            parse_rss("<rss><channel><title>Status</title></channel></rss>")
+            parse_rss("<rss><channel><title>Status</title></channel></rss>", &rss)
                 .unwrap()
                 .0,
             Health::Healthy
         );
         assert_eq!(
-            parse_rss("<rss><channel><item><title>Scheduled event</title></item></channel></rss>")
+            parse_rss("<rss><channel><item><details><state>ok</state></details></item><item><details><state>OUTAGE</state></details></item></channel></rss>", &rss)
                 .unwrap()
                 .0,
+            Health::Degraded
+        );
+        assert_eq!(
+            parse_rss(
+                "<rss><channel><item><title>Missing state</title></item></channel></rss>",
+                &rss
+            )
+            .unwrap()
+            .0,
             Health::Unknown
         );
+        let rss = rules(
+            "//item",
+            "status",
+            "(?i)servicedegradation|serviceinterruption",
+        );
+        assert_eq!(
+            parse_rss("<rss><channel><item><title>All is well</title><status>ServiceDegradation</status></item></channel></rss>", &rss).unwrap().0,
+            Health::Degraded
+        );
+        assert_eq!(
+            parse_rss("<rss><channel><item><title>ServiceInterruption</title><status>Operational</status></item></channel></rss>", &rss).unwrap().0,
+            Health::Healthy
+        );
+    }
+
+    #[test]
+    fn invalid_rules_are_rejected_and_legacy_rules_remain_editable() {
+        let mut custom = service("custom", "Custom");
+        custom.parsing_rules.degraded_regex = "(".to_string();
+        assert!(validate_custom_registry(&[custom.clone()], false).is_err());
+        custom.parsing_rules = ParsingRules::default();
+        assert!(validate_custom_registry(&[custom.clone()], false).is_err());
+        assert!(merge_registry(&[], &[custom.clone()]).is_ok());
+        assert!(parse_json("{}", &custom.parsing_rules).is_err());
+        let legacy = r#"{"id":"legacy","name":"Legacy","category":"Custom","feed_url":"https://example.com","status_url":"https://example.com","type":"json"}"#;
+        let parsed: Service = serde_json::from_str(legacy).unwrap();
+        assert!(parsed.parsing_rules.is_missing());
+        assert!(serde_json::to_string(&parsed)
+            .unwrap()
+            .contains("parsing_rules"));
+        assert!(rules("$.incidents[0]", "status", "x")
+            .validate("json")
+            .is_err());
+        assert!(rules("//item", "../status", "x").validate("rss").is_err());
     }
 }
 

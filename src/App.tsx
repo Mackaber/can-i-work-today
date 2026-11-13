@@ -11,6 +11,12 @@ type Service = {
   feed_url: string;
   status_url: string;
   type: "rss" | "json";
+  parsing_rules: {
+    items_path: string;
+    status_path: string;
+    degraded_regex: string;
+    end_path?: string;
+  };
 };
 
 type Health = "healthy" | "degraded" | "unknown";

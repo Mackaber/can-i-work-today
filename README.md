@@ -21,9 +21,18 @@ The app starts hidden in the tray. Choose **Open status** from its tray menu (or
 
 ## Service registry
 
-The initial registry is in [`registry.json`](./registry.json). It is embedded in the application at build time so the app has a usable service catalog without a network dependency. Add `json` services that expose a Statuspage-compatible `status.json` endpoint, or `rss` services with an RSS status feed. New registries can be published and wired to a remote update mechanism in a follow-up.
+The initial registry is in [`registry.json`](./registry.json). It is embedded in the application at build time so the app has a usable service catalog without a network dependency. Services use `json` or `rss` feeds and define how to interpret them in `parsing_rules`. New registries can be published and wired to a remote update mechanism in a follow-up.
 
-Use **Settings > Edit custom registry** to open the JSON editor in a separate window. Enter a JSON array with the same fields as `registry.json` (`id`, `name`, `category`, `feed_url`, `status_url`, and `type`, which must be `json` or `rss`). An entry with an existing ID replaces that built-in service; an unused ID adds a service. Click **Save** or press Cmd+S / Ctrl+S to apply changes immediately. Closing the editor window keeps unsaved edits until the app quits; reopening it restores the draft. Saved entries are stored in the platform's application config `settings.json` and preserved when other settings are changed.
+Use **Settings > Edit custom registry** to open the JSON editor in a separate window. Enter a JSON array with the same fields as `registry.json` (`id`, `name`, `category`, `feed_url`, `status_url`, `type`, and `parsing_rules`). An entry with an existing ID replaces that built-in service; an unused ID adds a service. Click **Save** or press Cmd+S / Ctrl+S to apply changes immediately. Closing the editor window keeps unsaved edits until the app quits; reopening it restores the draft. Saved entries are stored in the platform's application config `settings.json` and preserved when other settings are changed. Custom entries saved before parsing rules were introduced remain editable but report unknown until rules are added.
+
+Each `parsing_rules` object requires:
+
+- `items_path`: for JSON, `$` for the root or a dot-separated path such as `$.incidents` or `$.status`, selecting an array or a single object. For RSS, a descendant element path such as `//item` or `//channel/item`.
+- `status_path`: a path relative to each item: dot-separated JSON fields such as `status` or `details.state` (`$` selects the item itself), or slash-separated XML element names such as `title` or `details/status`. XML names use local tag names, without namespace prefixes.
+- `degraded_regex`: a Rust regular expression matched against each status string, for example `(?i)outage|degraded`. A match reports degraded; valid non-matching strings report healthy.
+- Optional JSON `end_path`: a relative field path such as `end` for feeds containing historical incidents. A null or empty string means active; a non-empty string means ended and is skipped. A missing or invalid field reports unknown.
+
+Empty item arrays or RSS feeds report healthy. Missing or empty status strings report unknown unless another item matches the degraded regex. Unsupported paths, invalid regexes, malformed feeds, and missing JSON item paths report unknown; custom rules are validated on save. RSS item paths identify elements by name, so an incorrectly configured path that matches no elements is indistinguishable from an empty feed.
 
 Checks run at the selected interval. Click a service row to open its status source, or use its check button to check it immediately. A service feed that cannot be reached or interpreted is shown as unknown rather than being treated as healthy. The tray dot is red when a tracked service has an active incident, green when checks are healthy, and gray when a result is unknown.
 

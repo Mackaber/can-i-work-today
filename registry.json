@@ -5,7 +5,12 @@
     "category": "Cloud Provider",
     "feed_url": "https://status.aws.amazon.com/rss/ec2-us-east-1.rss",
     "status_url": "https://health.aws.amazon.com/health/status",
-    "type": "rss"
+    "type": "rss",
+    "parsing_rules": {
+      "items_path": "//item",
+      "status_path": "title",
+      "degraded_regex": "(?i)disruption|error|degradation|outage"
+    }
   },
   {
     "id": "github",
@@ -13,7 +18,12 @@
     "category": "Developer Tools",
     "feed_url": "https://www.githubstatus.com/api/v2/status.json",
     "status_url": "https://www.githubstatus.com/",
-    "type": "json"
+    "type": "json",
+    "parsing_rules": {
+      "items_path": "$.status",
+      "status_path": "indicator",
+      "degraded_regex": "(?i)^(minor|major|critical|maintenance)$"
+    }
   },
   {
     "id": "google-cloud",
@@ -21,7 +31,13 @@
     "category": "Cloud Provider",
     "feed_url": "https://status.cloud.google.com/incidents.json",
     "status_url": "https://status.cloud.google.com/",
-    "type": "json"
+    "type": "json",
+    "parsing_rules": {
+      "items_path": "$",
+      "status_path": "most_recent_update.status",
+      "degraded_regex": "(?i)^SERVICE_(OUTAGE|DISRUPTION|DEGRADATION|INFORMATION)$",
+      "end_path": "end"
+    }
   },
   {
     "id": "google-workspace",
@@ -29,7 +45,13 @@
     "category": "Productivity",
     "feed_url": "https://www.google.com/appsstatus/dashboard/incidents.json",
     "status_url": "https://www.google.com/appsstatus/dashboard/",
-    "type": "json"
+    "type": "json",
+    "parsing_rules": {
+      "items_path": "$",
+      "status_path": "most_recent_update.status",
+      "degraded_regex": "(?i)^SERVICE_(OUTAGE|DISRUPTION|DEGRADATION|INFORMATION)$",
+      "end_path": "end"
+    }
   },
   {
     "id": "cloudflare",
@@ -37,7 +59,12 @@
     "category": "Cloud Provider",
     "feed_url": "https://www.cloudflarestatus.com/api/v2/status.json",
     "status_url": "https://www.cloudflarestatus.com/",
-    "type": "json"
+    "type": "json",
+    "parsing_rules": {
+      "items_path": "$.status",
+      "status_path": "indicator",
+      "degraded_regex": "(?i)^(minor|major|critical|maintenance)$"
+    }
   },
   {
     "id": "slack",
@@ -45,7 +72,12 @@
     "category": "Communication",
     "feed_url": "https://status.slack.com/api/v2.0.0/current",
     "status_url": "https://status.slack.com/",
-    "type": "json"
+    "type": "json",
+    "parsing_rules": {
+      "items_path": "$",
+      "status_path": "status",
+      "degraded_regex": "(?i)^(active|issue|outage|degraded|disruption)$"
+    }
   },
   {
     "id": "openai",
@@ -53,7 +85,12 @@
     "category": "AI Services",
     "feed_url": "https://status.openai.com/api/v2/status.json",
     "status_url": "https://status.openai.com/",
-    "type": "json"
+    "type": "json",
+    "parsing_rules": {
+      "items_path": "$.status",
+      "status_path": "indicator",
+      "degraded_regex": "(?i)^(minor|major|critical|maintenance)$"
+    }
   },
   {
     "id": "vercel",
@@ -61,15 +98,25 @@
     "category": "Developer Tools",
     "feed_url": "https://www.vercel-status.com/api/v2/status.json",
     "status_url": "https://www.vercel-status.com/",
-    "type": "json"
+    "type": "json",
+    "parsing_rules": {
+      "items_path": "$.status",
+      "status_path": "indicator",
+      "degraded_regex": "(?i)^(minor|major|critical|maintenance)$"
+    }
   },
   {
     "id": "microsoft-365",
     "name": "Microsoft 365",
+    "type": "rss",
     "category": "Productivity",
     "feed_url": "https://status.cloud.microsoft/api/feed/mac",
     "status_url": "https://status.cloud.microsoft/",
-    "type": "rss"
+    "parsing_rules": {
+      "items_path": "//item",
+      "status_path": "status",
+      "degraded_regex": "(?i)ServiceDegradation|ServiceInterruption"
+    }
   },
   {
     "id": "azure",
@@ -77,6 +124,11 @@
     "category": "Cloud Provider",
     "feed_url": "https://status.azure.com/en-us/status/feed/",
     "status_url": "https://status.azure.com/en-us/status",
-    "type": "rss"
+    "type": "rss",
+    "parsing_rules": {
+      "items_path": "//item",
+      "status_path": "title",
+      "degraded_regex": "(?i)disruption|error|degradation|outage|issue|incident"
+    }
   }
 ]
