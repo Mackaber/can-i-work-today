@@ -1,12 +1,16 @@
 # Can I Work Today?
 
-![alt text](src-tauri/icons/1024x1024.png)
+<p align="center">
+<img center src="src-tauri/icons/1024x1024.png" alt="Description" width="150">
+</p>
 
 A lightweight desktop app that monitors the cloud and SaaS services you rely on. It lives in your system tray and alerts you when a tracked service changes from healthy to having an issue.
 
 ## How to use
 
-![alt text](image.png)
+<p align="center">
+<img center src="image.png" alt="Description" width="300">
+</p>
 
 1. Launch the app and choose **Open status** from its tray menu. On macOS and Windows, you can also left-click the tray icon.
 2. Select the **+** button, search for a service, and add it to your list. Repeat for each service you want to monitor.
