@@ -1,31 +1,102 @@
 # Can I Work Today?
 
-A lightweight desktop app that watches the cloud and SaaS services you rely on and alerts you when one reports an active incident. The app lives in the system tray; click its icon to open the status flyout.
+A lightweight desktop app that monitors the cloud and SaaS services you rely on. It lives in your system tray and alerts you when a tracked service changes from healthy to having an issue.
 
+## How to use
 
+1. Launch the app and choose **Open status** from its tray menu. On macOS and Windows, you can also left-click the tray icon.
+2. Select the **+** button, search for a service, and add it to your list. Repeat for each service you want to monitor.
+3. Click a service to open its status page, use its check button to refresh it immediately, or use the minus button to stop monitoring it.
+4. Open **Settings** to change the check interval (5, 10, 15, or 30 minutes) or edit the custom service registry.
 
-## Development
+The tray dot is red when a tracked service has an issue, green when checks are healthy, and gray when a result is unknown. A feed that cannot be reached or interpreted is shown as unknown, not healthy. The app sends a notification when a tracked service changes from healthy to having an issue.
 
-### Prerequisites
+The app starts hidden in the tray. Closing its window hides it rather than quitting; use **Quit** in the window or tray menu to exit. You can move or resize the window using its native title bar. The window stays open when it loses focus, while the Settings panel closes when you click elsewhere. Your selected services and preferences are saved on this device.
 
-- Node.js 20 or newer with npm
-- Rust stable
-- Tauri v2 platform prerequisites for your operating system
+On macOS, if alerts do not appear, check **System Settings > Notifications** and allow notifications for Can I Work Today. Tauri's desktop permission check does not reflect the macOS notification setting.
 
-Install the frontend dependencies and launch the app:
+## Installation
+
+Download the latest available installer from the [GitHub releases page](https://github.com/Mackaber/can-i-work-today/releases). The release workflow produces a macOS DMG, a Windows MSI, and a Linux AppImage.
+
+### macOS
+
+On Apple Silicon, install with [Homebrew](https://brew.sh/):
 
 ```sh
-npm install
-npm run tauri dev
+brew tap Mackaber/can-i-work-today https://github.com/Mackaber/can-i-work-today.git
+brew install --cask can-i-work-today
 ```
 
-The app starts hidden in the tray. Choose **Open status** from its tray menu (or left-click the tray icon on macOS and Windows) to open the window. Use its native title bar to move or resize it; closing the window hides it in the tray. The window stays open when it loses focus, while the Settings panel closes when you click elsewhere. Add services using the plus button. The Settings menu changes the polling interval (5, 10, 15, or 30 minutes) and lets you edit a custom service registry; selected services and preferences are persisted in the platform's application config directory.
+Alternatively, download the macOS DMG from the releases page, open it, and drag **Can I Work Today** to Applications. The Homebrew cask and release workflow currently target Apple Silicon; an Intel macOS installer is not currently provided by that workflow.
 
-## Service registry
+The release workflow does not configure Apple signing or notarization, so macOS Gatekeeper may block the app. If macOS blocks an app you have downloaded and trust, first try opening it from **System Settings > Privacy & Security**. As an alternative, similar to the guidance in [SourceGit](https://github.com/sourcegit-scm/sourcegit#installation), remove the quarantine attribute from the installed app:
 
-The initial registry is in [`registry.json`](./registry.json). It is embedded in the application at build time so the app has a usable service catalog without a network dependency. Services use `json` or `rss` feeds and define how to interpret them in `parsing_rules`. New registries can be published and wired to a remote update mechanism in a follow-up.
+```sh
+xattr -dr com.apple.quarantine "/Applications/Can I Work Today.app"
+```
 
-Use **Settings > Edit custom registry** to open the JSON editor in a separate window. Enter a JSON array with the same fields as `registry.json` (`id`, `name`, `category`, `feed_url`, `status_url`, `type`, and `parsing_rules`). An entry with an existing ID replaces that built-in service; an unused ID adds a service. Click **Save** or press Cmd+S / Ctrl+S to apply changes immediately. Closing the editor window keeps unsaved edits until the app quits; reopening it restores the draft. Saved entries are stored in the platform's application config `settings.json` and preserved when other settings are changed. Custom entries saved before parsing rules were introduced remain editable but report unknown until rules are added.
+Removing quarantine bypasses a macOS security check; do this only if you trust the download and its source.
+
+### Windows
+
+Download the Windows MSI from the releases page, run it, and follow the installer prompts. Launch **Can I Work Today** and open it from the system tray.
+
+### Linux
+
+Download the Linux AppImage from the releases page, make it executable, and run it:
+
+```sh
+chmod +x /path/to/Can.I.Work.Today.AppImage
+/path/to/Can.I.Work.Today.AppImage
+```
+
+Replace the example path with the downloaded filename. Your desktop environment must support a system tray or application indicators.
+
+## Add a custom service
+
+The built-in catalog in [`registry.json`](./registry.json) is embedded at build time. To add or override services without rebuilding:
+
+1. Open **Settings > Edit custom registry**.
+2. Enter a JSON array of service objects. Each object needs `id`, `name`, `category`, `feed_url`, `status_url`, `type`, and `parsing_rules`.
+3. Click **Save** or press Cmd+S / Ctrl+S, then add the service to your monitored list using the **+** button.
+
+An unused `id` adds a service; an existing built-in ID replaces that service. Saved entries are stored in the platform's application config `settings.json`. Closing the editor keeps unsaved edits until the app quits, and reopening it restores the draft.
+
+To add several services, put each object inside the same array and separate objects with commas, with no trailing comma after the last object. For example, these two entries override the corresponding built-in services:
+
+```json
+[
+  {
+    "id": "github",
+    "name": "GitHub",
+    "category": "Developer Tools",
+    "feed_url": "https://www.githubstatus.com/api/v2/status.json",
+    "status_url": "https://www.githubstatus.com/",
+    "type": "json",
+    "parsing_rules": {
+      "items_path": "$.status",
+      "status_path": "indicator",
+      "degraded_regex": "(?i)^(minor|major|critical|maintenance)$"
+    }
+  },
+  {
+    "id": "cloudflare",
+    "name": "Cloudflare",
+    "category": "Cloud Provider",
+    "feed_url": "https://www.cloudflarestatus.com/api/v2/status.json",
+    "status_url": "https://www.cloudflarestatus.com/",
+    "type": "json",
+    "parsing_rules": {
+      "items_path": "$.status",
+      "status_path": "indicator",
+      "degraded_regex": "(?i)^(minor|major|critical|maintenance)$"
+    }
+  }
+]
+```
+
+Preserve any custom entries you want to keep when editing the array. Custom entries saved before parsing rules were introduced remain editable but report unknown until rules are added.
 
 ### Generate a custom service with AI
 
@@ -84,10 +155,21 @@ Each `parsing_rules` object requires:
 
 Empty item arrays or RSS feeds report healthy. Missing or empty status strings report unknown unless another item matches the degraded regex. Unsupported paths, invalid regexes, malformed feeds, and missing JSON item paths report unknown; custom rules are validated on save. RSS item paths identify elements by name, so an incorrectly configured path that matches no elements is indistinguishable from an empty feed.
 
-Checks run at the selected interval. Click a service row to open its status source, or use its check button to check it immediately. A service feed that cannot be reached or interpreted is shown as unknown rather than being treated as healthy. The tray dot is red when a tracked service has an active incident, green when checks are healthy, and gray when a result is unknown.
+## Development
 
-The app sends a notification when a tracked service changes from healthy to having an issue. On macOS, if alerts do not appear, check **System Settings > Notifications** and allow notifications for Can I Work Today. Tauri's desktop permission check does not reflect the macOS notification setting.
+### Prerequisites
 
-## Release builds
+- Node.js 20 or newer with npm
+- Rust stable
+- [Tauri v2 platform prerequisites](https://v2.tauri.app/start/prerequisites/) for your operating system
 
-Push a `v*` tag to start the GitHub Actions release workflow. It builds a macOS DMG, Windows MSI, and Linux AppImage and attaches them to a draft GitHub release.
+Install the frontend dependencies and launch the app:
+
+```sh
+npm install
+npm run tauri dev
+```
+
+### Release builds
+
+Push a `v*` tag to start the GitHub Actions release workflow. It builds a macOS DMG, Windows MSI, and Linux AppImage and attaches them to a draft GitHub release. When a stable GitHub release is published, a workflow updates the Homebrew cask's version and checksum automatically. No separate Homebrew account or tap repository is required.
