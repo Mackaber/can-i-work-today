@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
-import { Check, ChevronDown, CircleAlert, Cloud, LoaderCircle, Minus, Plus, Search, Settings2, X } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
+import { Check, ChevronDown, CircleAlert, Cloud, LoaderCircle, Minus, Plus, RefreshCw, Search, Settings2, X } from "lucide-react";
 
 type Service = {
   id: string;
   name: string;
   category: string;
   feed_url: string;
+  status_url: string;
   type: "rss" | "json";
 };
 
@@ -37,6 +39,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pollInterval, setPollInterval] = useState(10);
   const [busy, setBusy] = useState(false);
+  const [checkingServices, setCheckingServices] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState("");
   const [isFocused, setIsFocused] = useState(true);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -59,18 +62,31 @@ function App() {
     }
   }, []);
 
+  const refreshRegistry = useCallback(async () => {
+    try {
+      const services = await invoke<Service[]>("get_registry");
+      setRegistry(services);
+    } catch (reason) {
+      setError(`Could not load service registry: ${String(reason)}`);
+    }
+  }, []);
+
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let cancelled = false;
     void Promise.all([
-      invoke<Service[]>("get_registry").then((services) => {
-        if (!cancelled) setRegistry(services);
-      }),
+      refreshRegistry(),
       refresh(),
       invoke<number>("get_poll_interval").then((minutes) => {
         if (!cancelled) setPollInterval(minutes);
       }),
-      getCurrentWindow().onFocusChanged(({ payload }) => setIsFocused(payload)),
+      getCurrentWindow().onFocusChanged(({ payload }) => {
+        setIsFocused(payload);
+        if (payload) {
+          void refreshRegistry();
+          void refresh();
+        }
+      }),
     ]).then(([, , , stopListening]) => {
       if (cancelled) stopListening();
       else unlisten = stopListening;
@@ -81,7 +97,25 @@ function App() {
       cancelled = true;
       unlisten?.();
     };
-  }, [refresh]);
+  }, [refresh, refreshRegistry]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    void listen("registry-changed", () => {
+      void refreshRegistry();
+      void refresh();
+    }).then((stopListening) => {
+      if (cancelled) stopListening();
+      else unlisten = stopListening;
+    }).catch((reason) => {
+      if (!cancelled) setError(`Could not watch registry changes: ${String(reason)}`);
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [refresh, refreshRegistry]);
 
   useEffect(() => {
     if (!isFocused) return;
@@ -130,6 +164,31 @@ function App() {
     }
   }
 
+  async function openServiceSource(status: ServiceStatus) {
+    try {
+      await invoke("open_service_source", { serviceId: status.id });
+    } catch (reason) {
+      setError(`Could not open ${status.name}'s status source: ${String(reason)}`);
+    }
+  }
+
+  async function checkServiceNow(status: ServiceStatus) {
+    setCheckingServices((current) => new Set(current).add(status.id));
+    try {
+      const updated = await invoke<ServiceStatus>("check_service_now", { serviceId: status.id });
+      setStatuses((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setError("");
+    } catch (reason) {
+      setError(`Could not check ${status.name}: ${String(reason)}`);
+    } finally {
+      setCheckingServices((current) => {
+        const next = new Set(current);
+        next.delete(status.id);
+        return next;
+      });
+    }
+  }
+
   async function updatePollInterval(minutes: number) {
     setBusy(true);
     try {
@@ -137,6 +196,18 @@ function App() {
       setPollInterval(minutes);
     } catch (reason) {
       setError(`Could not update the polling interval: ${String(reason)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openRegistryEditor() {
+    setBusy(true);
+    try {
+      await invoke("open_registry_editor");
+      setError("");
+    } catch (reason) {
+      setError(`Could not open custom registry: ${String(reason)}`);
     } finally {
       setBusy(false);
     }
@@ -286,21 +357,56 @@ function App() {
             </div>
           ) : (
             statuses.map((status) => (
-              <article className="service-row" key={status.id}>
+              <article
+                className="service-row"
+                key={status.id}
+                role="link"
+                tabIndex={0}
+                aria-label={`Open ${status.name}'s status source in your browser`}
+                onClick={() => void openServiceSource(status)}
+                onKeyDown={(event) => {
+                  if (event.target === event.currentTarget && event.key === "Enter") {
+                    event.preventDefault();
+                    void openServiceSource(status);
+                  }
+                }}
+              >
                 <span className={`status-dot status-dot--${status.state}`} aria-label={stateLabels[status.state]} />
-                <div className="service-info">
-                  <div className="service-name-line">
-                    <h3>{status.name}</h3>
-                    <span className={`status-label status-label--${status.state}`}>{stateLabels[status.state]}</span>
-                  </div>
-                  <p>{status.detail}</p>
-                </div>
+                <span className="service-open">
+                  <span className="service-info">
+                    <span className="service-name-line">
+                      <span className="service-name">{status.name}</span>
+                      <span className={`status-label status-label--${status.state}`}>{stateLabels[status.state]}</span>
+                    </span>
+                    <span className="service-detail">{status.detail}</span>
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className="icon-button check-button"
+                  aria-label={`Check ${status.name} now`}
+                  title={`Check ${status.name} now`}
+                  disabled={checkingServices.has(status.id)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void checkServiceNow(status);
+                  }}
+                  onKeyDown={(event) => event.stopPropagation()}
+                >
+                  {checkingServices.has(status.id)
+                    ? <LoaderCircle size={15} className="spin" />
+                    : <RefreshCw size={14} />}
+                </button>
                 <button
                   className="icon-button remove-button"
                   aria-label={`Stop monitoring ${status.name}`}
                   title={`Stop monitoring ${status.name}`}
                   disabled={busy}
-                  onClick={() => void removeService(status.id)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void removeService(status.id);
+                  }}
+                  onKeyDown={(event) => event.stopPropagation()}
                 >
                   <Minus size={16} />
                 </button>
@@ -338,7 +444,15 @@ function App() {
                     <option key={minutes} value={minutes}>Every {minutes} minutes</option>
                   ))}
                 </select>
-                <small>Changes are saved on this device.</small>
+                <button
+                  className="settings-save"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void openRegistryEditor()}
+                >
+                  Edit custom registry…
+                </button>
+                <small>Settings are saved on this device.</small>
               </div>
             )}
           </div>

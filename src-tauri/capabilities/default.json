@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Core capabilities for the status flyout window.",
-  "windows": ["main"],
+  "description": "Core capabilities for the status flyout and registry editor windows.",
+  "windows": ["main", "registry-editor"],
   "permissions": ["core:default", "core:window:allow-hide", "notification:allow-is-permission-granted"]
 }

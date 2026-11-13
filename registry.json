@@ -4,6 +4,7 @@
     "name": "AWS (us-east-1)",
     "category": "Cloud Provider",
     "feed_url": "https://status.aws.amazon.com/rss/ec2-us-east-1.rss",
+    "status_url": "https://health.aws.amazon.com/health/status",
     "type": "rss"
   },
   {
@@ -11,6 +12,7 @@
     "name": "GitHub",
     "category": "Developer Tools",
     "feed_url": "https://www.githubstatus.com/api/v2/status.json",
+    "status_url": "https://www.githubstatus.com/",
     "type": "json"
   },
   {
@@ -18,6 +20,7 @@
     "name": "Google Cloud",
     "category": "Cloud Provider",
     "feed_url": "https://status.cloud.google.com/incidents.json",
+    "status_url": "https://status.cloud.google.com/",
     "type": "json"
   },
   {
@@ -25,6 +28,7 @@
     "name": "Google Workspace",
     "category": "Productivity",
     "feed_url": "https://www.google.com/appsstatus/dashboard/incidents.json",
+    "status_url": "https://www.google.com/appsstatus/dashboard/",
     "type": "json"
   },
   {
@@ -32,6 +36,7 @@
     "name": "Cloudflare",
     "category": "Cloud Provider",
     "feed_url": "https://www.cloudflarestatus.com/api/v2/status.json",
+    "status_url": "https://www.cloudflarestatus.com/",
     "type": "json"
   },
   {
@@ -39,6 +44,7 @@
     "name": "Slack",
     "category": "Communication",
     "feed_url": "https://status.slack.com/api/v2.0.0/current",
+    "status_url": "https://status.slack.com/",
     "type": "json"
   },
   {
@@ -46,6 +52,7 @@
     "name": "OpenAI",
     "category": "AI Services",
     "feed_url": "https://status.openai.com/api/v2/status.json",
+    "status_url": "https://status.openai.com/",
     "type": "json"
   },
   {
@@ -53,20 +60,23 @@
     "name": "Vercel",
     "category": "Developer Tools",
     "feed_url": "https://www.vercel-status.com/api/v2/status.json",
+    "status_url": "https://www.vercel-status.com/",
     "type": "json"
   },
   {
     "id": "microsoft-365",
     "name": "Microsoft 365",
     "category": "Productivity",
-    "feed_url": "https://status.cloud.microsoft/api/v2/status.json",
-    "type": "json"
+    "feed_url": "https://status.cloud.microsoft/api/feed/mac",
+    "status_url": "https://status.cloud.microsoft/",
+    "type": "rss"
   },
   {
     "id": "azure",
     "name": "Microsoft Azure",
     "category": "Cloud Provider",
     "feed_url": "https://status.azure.com/en-us/status/feed/",
+    "status_url": "https://status.azure.com/en-us/status",
     "type": "rss"
   }
 ]

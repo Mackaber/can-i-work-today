@@ -14,9 +14,10 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, State,
+    AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder,
 };
 use tauri_plugin_notification::NotificationExt;
+use tauri_plugin_opener::OpenerExt;
 use tokio::sync::Notify;
 
 const DEFAULT_POLL_INTERVAL_MINUTES: u64 = 10;
@@ -28,6 +29,7 @@ struct Service {
     name: String,
     category: String,
     feed_url: String,
+    status_url: String,
     #[serde(rename = "type")]
     feed_type: String,
 }
@@ -56,10 +58,13 @@ struct UserConfig {
     monitored_services: Vec<String>,
     #[serde(default = "default_poll_interval")]
     poll_interval_minutes: u64,
+    #[serde(default)]
+    custom_registry: Vec<Service>,
 }
 
 struct AppState {
-    registry: Vec<Service>,
+    registry: Mutex<Vec<Service>>,
+    custom_registry: Mutex<Vec<Service>>,
     monitored: Mutex<HashSet<String>>,
     statuses: Mutex<HashMap<String, ServiceStatus>>,
     poll_interval_minutes: Mutex<u64>,
@@ -80,18 +85,22 @@ fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("settings.json"))
 }
 
-fn load_user_config(app: &AppHandle, registry: &[Service]) -> Result<UserConfig, String> {
+fn load_user_config(app: &AppHandle) -> Result<UserConfig, String> {
     let path = config_path(app)?;
     if !path.exists() {
         return Ok(UserConfig {
             monitored_services: Vec::new(),
             poll_interval_minutes: DEFAULT_POLL_INTERVAL_MINUTES,
+            custom_registry: Vec::new(),
         });
     }
     let contents =
         fs::read_to_string(&path).map_err(|error| format!("Could not read settings: {error}"))?;
     let mut config: UserConfig = serde_json::from_str(&contents)
         .map_err(|error| format!("Could not parse settings: {error}"))?;
+    let default_registry: Vec<Service> =
+        serde_json::from_str(REGISTRY_JSON).map_err(|error| error.to_string())?;
+    let registry = merge_registry(&default_registry, &config.custom_registry)?;
     let known_ids: HashSet<&str> = registry.iter().map(|service| service.id.as_str()).collect();
     config
         .monitored_services
@@ -110,6 +119,7 @@ fn save_user_config(
     app: &AppHandle,
     monitored: &HashSet<String>,
     poll_interval_minutes: u64,
+    custom_registry: &[Service],
 ) -> Result<(), String> {
     let path = config_path(app)?;
     let mut ids: Vec<&String> = monitored.iter().collect();
@@ -117,12 +127,53 @@ fn save_user_config(
     let contents = serde_json::to_string_pretty(&UserConfig {
         monitored_services: ids.into_iter().cloned().collect(),
         poll_interval_minutes,
+        custom_registry: custom_registry.to_vec(),
     })
     .map_err(|error| format!("Could not serialize settings: {error}"))?;
     let temporary_path = path.with_extension("json.tmp");
     fs::write(&temporary_path, contents)
         .map_err(|error| format!("Could not write settings: {error}"))?;
     fs::rename(&temporary_path, &path).map_err(|error| format!("Could not save settings: {error}"))
+}
+
+fn validate_custom_registry(services: &[Service]) -> Result<(), String> {
+    let mut ids = HashSet::new();
+    for service in services {
+        if service.id.trim().is_empty()
+            || service.name.trim().is_empty()
+            || service.category.trim().is_empty()
+            || service.feed_url.trim().is_empty()
+            || service.status_url.trim().is_empty()
+        {
+            return Err("Each custom service must have non-empty id, name, category, feed_url, and status_url fields".to_string());
+        }
+        if !["rss", "json"].contains(&service.feed_type.as_str()) {
+            return Err(format!(
+                "Unsupported feed type for {}: {} (expected rss or json)",
+                service.id, service.feed_type
+            ));
+        }
+        if !ids.insert(&service.id) {
+            return Err(format!(
+                "Custom registry contains duplicate service id: {}",
+                service.id
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn merge_registry(defaults: &[Service], custom: &[Service]) -> Result<Vec<Service>, String> {
+    validate_custom_registry(custom)?;
+    let mut merged = defaults.to_vec();
+    for service in custom {
+        if let Some(existing) = merged.iter_mut().find(|item| item.id == service.id) {
+            *existing = service.clone();
+        } else {
+            merged.push(service.clone());
+        }
+    }
+    Ok(merged)
 }
 
 fn status_for(service: &Service, state: Health, detail: String) -> ServiceStatus {
@@ -137,8 +188,112 @@ fn status_for(service: &Service, state: Health, detail: String) -> ServiceStatus
 }
 
 #[tauri::command]
-fn get_registry(state: State<'_, AppState>) -> Vec<Service> {
-    state.registry.clone()
+fn get_registry(state: State<'_, AppState>) -> Result<Vec<Service>, String> {
+    state
+        .registry
+        .lock()
+        .map(|registry| registry.clone())
+        .map_err(|_| "Service registry is unavailable".to_string())
+}
+
+#[tauri::command]
+fn get_custom_registry(state: State<'_, AppState>) -> Result<Vec<Service>, String> {
+    state
+        .custom_registry
+        .lock()
+        .map(|registry| registry.clone())
+        .map_err(|_| "Custom service registry is unavailable".to_string())
+}
+
+#[tauri::command]
+fn set_custom_registry(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    services: Vec<Service>,
+) -> Result<(), String> {
+    let defaults: Vec<Service> =
+        serde_json::from_str(REGISTRY_JSON).map_err(|error| error.to_string())?;
+    let registry = merge_registry(&defaults, &services)?;
+    let mut monitored = state
+        .monitored
+        .lock()
+        .map_err(|_| "Service list is unavailable".to_string())?;
+    let poll_interval = state
+        .poll_interval_minutes
+        .lock()
+        .map_err(|_| "Poll interval setting is unavailable".to_string())?;
+    let mut custom_registry = state
+        .custom_registry
+        .lock()
+        .map_err(|_| "Custom service registry is unavailable".to_string())?;
+    let known_ids: HashSet<&str> = registry.iter().map(|service| service.id.as_str()).collect();
+    let mut updated_monitored = monitored.clone();
+    updated_monitored.retain(|id| known_ids.contains(id.as_str()));
+    save_user_config(&app, &updated_monitored, *poll_interval, &services)?;
+
+    *state
+        .registry
+        .lock()
+        .map_err(|_| "Service registry is unavailable".to_string())? = registry.clone();
+    *custom_registry = services;
+    *monitored = updated_monitored.clone();
+
+    let mut statuses = state
+        .statuses
+        .lock()
+        .map_err(|_| "Status data is unavailable".to_string())?;
+    *statuses = registry
+        .iter()
+        .filter(|service| updated_monitored.contains(&service.id))
+        .map(|service| {
+            (
+                service.id.clone(),
+                ServiceStatus {
+                    id: service.id.clone(),
+                    name: service.name.clone(),
+                    category: service.category.clone(),
+                    state: Health::Unknown,
+                    detail: "Waiting for the first check".to_string(),
+                    checked_at: None,
+                },
+            )
+        })
+        .collect();
+    drop(statuses);
+    drop(monitored);
+    drop(custom_registry);
+    drop(poll_interval);
+    update_tray_icon(&app, &state);
+    state.poll_interval_changed.notify_one();
+    if let Err(error) = app.emit("registry-changed", ()) {
+        eprintln!("Could not notify windows of registry change: {error}");
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_registry_editor(app: AppHandle) -> Result<(), String> {
+    let window = match app.get_webview_window("registry-editor") {
+        Some(window) => window,
+        None => WebviewWindowBuilder::new(
+            &app,
+            "registry-editor",
+            WebviewUrl::App("index.html".into()),
+        )
+        .title("Custom Registry")
+        .inner_size(760.0, 620.0)
+        .min_inner_size(480.0, 360.0)
+        .center()
+        .visible(false)
+        .build()
+        .map_err(|error| format!("Could not create registry editor: {error}"))?,
+    };
+    window
+        .show()
+        .map_err(|error| format!("Could not show registry editor: {error}"))?;
+    window
+        .set_focus()
+        .map_err(|error| format!("Could not focus registry editor: {error}"))
 }
 
 #[tauri::command]
@@ -167,7 +322,11 @@ fn set_poll_interval(
         .poll_interval_minutes
         .lock()
         .map_err(|_| "Poll interval setting is unavailable".to_string())?;
-    save_user_config(&app, &monitored, minutes)?;
+    let custom_registry = state
+        .custom_registry
+        .lock()
+        .map_err(|_| "Custom service registry is unavailable".to_string())?;
+    save_user_config(&app, &monitored, minutes, &custom_registry)?;
     *poll_interval = minutes;
     state.poll_interval_changed.notify_one();
     Ok(())
@@ -175,6 +334,11 @@ fn set_poll_interval(
 
 #[tauri::command]
 fn get_status(state: State<'_, AppState>) -> Result<Vec<ServiceStatus>, String> {
+    let registry = state
+        .registry
+        .lock()
+        .map_err(|_| "Service registry is unavailable".to_string())?
+        .clone();
     let monitored = state
         .monitored
         .lock()
@@ -184,8 +348,7 @@ fn get_status(state: State<'_, AppState>) -> Result<Vec<ServiceStatus>, String> 
         .statuses
         .lock()
         .map_err(|_| "Status data is unavailable".to_string())?;
-    Ok(state
-        .registry
+    Ok(registry
         .iter()
         .filter(|service| monitored.contains(&service.id))
         .map(|service| {
@@ -210,13 +373,16 @@ async fn add_service(
     state: State<'_, AppState>,
     service_id: String,
 ) -> Result<(), String> {
-    if !state
+    let registry = state
         .registry
+        .lock()
+        .map_err(|_| "Service registry is unavailable".to_string())?
+        .clone();
+    let service = registry
         .iter()
-        .any(|service| service.id == service_id)
-    {
-        return Err(format!("Unknown service: {service_id}"));
-    }
+        .find(|service| service.id == service_id)
+        .cloned()
+        .ok_or_else(|| format!("Unknown service: {service_id}"))?;
     {
         let mut monitored = state
             .monitored
@@ -226,25 +392,22 @@ async fn add_service(
             .poll_interval_minutes
             .lock()
             .map_err(|_| "Poll interval setting is unavailable".to_string())?;
+        let custom_registry = state
+            .custom_registry
+            .lock()
+            .map_err(|_| "Custom service registry is unavailable".to_string())?;
         let mut updated = monitored.clone();
         updated.insert(service_id.clone());
-        save_user_config(&app, &updated, *poll_interval)?;
+        save_user_config(&app, &updated, *poll_interval, &custom_registry)?;
         *monitored = updated;
     }
-    let service = state
-        .registry
-        .iter()
-        .find(|service| service.id == service_id)
-        .cloned();
-    if let Some(service) = service {
-        let status = check_service(&Client::new(), &service).await;
-        state
-            .statuses
-            .lock()
-            .map_err(|_| "Status data is unavailable".to_string())?
-            .insert(service.id, status);
-        update_tray_icon(&app, &state);
-    }
+    let status = check_service(&Client::new(), &service).await;
+    state
+        .statuses
+        .lock()
+        .map_err(|_| "Status data is unavailable".to_string())?
+        .insert(service.id, status);
+    update_tray_icon(&app, &state);
     Ok(())
 }
 
@@ -263,9 +426,13 @@ fn remove_service(
             .poll_interval_minutes
             .lock()
             .map_err(|_| "Poll interval setting is unavailable".to_string())?;
+        let custom_registry = state
+            .custom_registry
+            .lock()
+            .map_err(|_| "Custom service registry is unavailable".to_string())?;
         let mut updated = monitored.clone();
         updated.remove(&service_id);
-        save_user_config(&app, &updated, *poll_interval)?;
+        save_user_config(&app, &updated, *poll_interval, &custom_registry)?;
         *monitored = updated;
     }
     state
@@ -280,6 +447,25 @@ fn remove_service(
 #[tauri::command]
 fn quit_app(app: AppHandle) {
     app.exit(0);
+}
+
+#[tauri::command]
+fn open_service_source(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    service_id: String,
+) -> Result<(), String> {
+    let service = state
+        .registry
+        .lock()
+        .map_err(|_| "Service registry is unavailable".to_string())?
+        .iter()
+        .find(|service| service.id == service_id)
+        .cloned()
+        .ok_or_else(|| format!("Unknown service: {service_id}"))?;
+    app.opener()
+        .open_url(&service.status_url, None::<&str>)
+        .map_err(|error| format!("Could not open status source: {error}"))
 }
 
 async fn check_service(client: &Client, service: &Service) -> ServiceStatus {
@@ -609,7 +795,53 @@ fn update_tray_icon(app: &AppHandle, state: &AppState) {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_json, parse_rss, Health};
+    use super::{merge_registry, parse_json, parse_rss, Health, Service};
+
+    fn service(id: &str, name: &str) -> Service {
+        Service {
+            id: id.to_string(),
+            name: name.to_string(),
+            category: "Custom".to_string(),
+            feed_url: "https://example.com/feed".to_string(),
+            status_url: "https://example.com/status".to_string(),
+            feed_type: "json".to_string(),
+        }
+    }
+
+    #[test]
+    fn custom_registry_replaces_matching_ids_and_adds_new_ids() {
+        let defaults = vec![
+            service("existing", "Built-in"),
+            service("unchanged", "Unchanged"),
+        ];
+        let custom = vec![
+            service("existing", "Customized"),
+            service("new", "New service"),
+        ];
+
+        let merged = merge_registry(&defaults, &custom).unwrap();
+        assert_eq!(merged.len(), 3);
+        assert_eq!(merged[0].name, "Customized");
+        assert_eq!(merged[1].name, "Unchanged");
+        assert_eq!(merged[2].id, "new");
+    }
+
+    #[test]
+    fn custom_registry_rejects_duplicate_ids_and_unsupported_feed_types() {
+        let defaults = vec![service("default", "Default")];
+        assert!(merge_registry(
+            &defaults,
+            &[
+                service("duplicate", "First"),
+                service("duplicate", "Second")
+            ]
+        )
+        .is_err());
+
+        let mut unsupported = service("custom", "Custom");
+        unsupported.feed_type = "xml".to_string();
+        assert!(merge_registry(&defaults, &[unsupported]).is_err());
+    }
 
     #[test]
     fn statuspage_indicator_is_respected() {
@@ -679,6 +911,59 @@ mod tests {
     }
 }
 
+async fn check_and_update_service(
+    app: &AppHandle,
+    state: &AppState,
+    client: &Client,
+    service: &Service,
+) -> Result<ServiceStatus, String> {
+    let next = check_service(client, service).await;
+    let previous = state
+        .statuses
+        .lock()
+        .map_err(|_| "Status data is unavailable".to_string())?
+        .insert(service.id.clone(), next.clone())
+        .map(|status| status.state);
+    if previous == Some(Health::Healthy) && next.state == Health::Degraded {
+        if let Err(error) = app
+            .notification()
+            .builder()
+            .title(format!("{} is having trouble", service.name))
+            .body(&next.detail)
+            .show()
+        {
+            eprintln!("Could not show outage notification: {error}");
+        }
+    }
+    update_tray_icon(app, state);
+    Ok(next)
+}
+
+#[tauri::command]
+async fn check_service_now(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    service_id: String,
+) -> Result<ServiceStatus, String> {
+    if !state
+        .monitored
+        .lock()
+        .map_err(|_| "Service list is unavailable".to_string())?
+        .contains(&service_id)
+    {
+        return Err(format!("Service is not being monitored: {service_id}"));
+    }
+    let service = state
+        .registry
+        .lock()
+        .map_err(|_| "Service registry is unavailable".to_string())?
+        .iter()
+        .find(|service| service.id == service_id)
+        .cloned()
+        .ok_or_else(|| format!("Unknown service: {service_id}"))?;
+    check_and_update_service(&app, &state, &Client::new(), &service).await
+}
+
 async fn poll_services(app: AppHandle) {
     let client = match Client::builder().user_agent("CanIWorkToday/0.1").build() {
         Ok(client) => client,
@@ -696,36 +981,21 @@ async fn poll_services(app: AppHandle) {
                 continue;
             }
         };
-        for service in state
-            .registry
+        let registry = match state.registry.lock() {
+            Ok(registry) => registry.clone(),
+            Err(error) => {
+                eprintln!("Could not read service registry: {error}");
+                continue;
+            }
+        };
+        for service in registry
             .iter()
             .filter(|service| monitored_ids.contains(&service.id))
         {
-            let next = check_service(&client, service).await;
-            let previous = match state.statuses.lock() {
-                Ok(mut statuses) => {
-                    let old = statuses.get(&service.id).map(|status| status.state);
-                    statuses.insert(service.id.clone(), next.clone());
-                    old
-                }
-                Err(error) => {
-                    eprintln!("Could not update service status: {error}");
-                    continue;
-                }
-            };
-            if previous == Some(Health::Healthy) && next.state == Health::Degraded {
-                if let Err(error) = app
-                    .notification()
-                    .builder()
-                    .title(format!("{} is having trouble", service.name))
-                    .body(&next.detail)
-                    .show()
-                {
-                    eprintln!("Could not show outage notification: {error}");
-                }
+            if let Err(error) = check_and_update_service(&app, &state, &client, service).await {
+                eprintln!("Could not update service status: {error}");
             }
         }
-        update_tray_icon(&app, &state);
         let minutes = match state.poll_interval_minutes.lock() {
             Ok(minutes) => *minutes,
             Err(error) => {
@@ -741,13 +1011,16 @@ async fn poll_services(app: AppHandle) {
 }
 
 pub fn run() {
-    let registry: Vec<Service> =
+    let default_registry: Vec<Service> =
         serde_json::from_str(REGISTRY_JSON).expect("registry.json must be valid");
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
             let handle = app.handle().clone();
-            let config = load_user_config(&handle, &registry).map_err(std::io::Error::other)?;
+            let config = load_user_config(&handle).map_err(std::io::Error::other)?;
+            let registry = merge_registry(&default_registry, &config.custom_registry)
+                .map_err(std::io::Error::other)?;
             let monitored: HashSet<String> = config.monitored_services.into_iter().collect();
             let poll_interval_minutes = config.poll_interval_minutes;
             let statuses = registry
@@ -768,7 +1041,8 @@ pub fn run() {
                 })
                 .collect();
             app.manage(AppState {
-                registry,
+                registry: Mutex::new(registry),
+                custom_registry: Mutex::new(config.custom_registry),
                 monitored: Mutex::new(monitored),
                 statuses: Mutex::new(statuses),
                 poll_interval_minutes: Mutex::new(poll_interval_minutes),
@@ -825,6 +1099,13 @@ pub fn run() {
                 if let Err(error) = window.hide() {
                     eprintln!("Could not hide status window: {error}");
                 }
+            } else if window.label() == "registry-editor" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    if let Err(error) = window.hide() {
+                        eprintln!("Could not hide registry editor: {error}");
+                    }
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -832,8 +1113,13 @@ pub fn run() {
             get_poll_interval,
             set_poll_interval,
             get_status,
+            check_service_now,
             add_service,
             remove_service,
+            get_custom_registry,
+            set_custom_registry,
+            open_registry_editor,
+            open_service_source,
             quit_app
         ])
         .run(tauri::generate_context!())
