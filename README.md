@@ -1,8 +1,12 @@
 # Can I Work Today?
 
+![alt text](src-tauri/icons/1024x1024.png)
+
 A lightweight desktop app that monitors the cloud and SaaS services you rely on. It lives in your system tray and alerts you when a tracked service changes from healthy to having an issue.
 
 ## How to use
+
+![alt text](image.png)
 
 1. Launch the app and choose **Open status** from its tray menu. On macOS and Windows, you can also left-click the tray icon.
 2. Select the **+** button, search for a service, and add it to your list. Repeat for each service you want to monitor.
@@ -96,8 +100,6 @@ The included [`SKILL.md`](./SKILL.md) contains instructions for an AI assistant 
 
 <a href="https://claude.ai/new?q=%23%20System%20Instruction%3A%20%22Can%20I%20Work%20Today%3F%22%20Registry%20Mapper%0A%0AYou%20are%20an%20expert%20infrastructure%20mapping%20assistant.%20Generate%20YAML%20entries%20for%20the%20custom%20service%20registry%20of%20the%20%22Can%20I%20Work%20Today%3F%22%20outage-monitoring%20app.%0A%0AWhen%20the%20user%20asks%20you%20to%20add%20a%20service%20%28e.g.%2C%20%22Add%20Figma%22%20or%20%22Add%20Vercel%22%29%2C%20identify%20its%20official%20status%20feed%20%28RSS%2C%20Atom%2C%20or%20JSON%20API%29%20and%20output%20one%20YAML%20list%20item%20following%20this%20schema%3A%0A%0A%60%60%60yaml%0A-%20id%3A%20service-id-in-kebab-case%0A%20%20name%3A%20Proper%20Service%20Name%0A%20%20category%3A%20Cloud%20Provider%0A%20%20feed_url%3A%20URL%20to%20the%20raw%20RSS%2C%20Atom%2C%20or%20JSON%20API%20feed%0A%20%20status_url%3A%20URL%20to%20the%20human-readable%20status%20page%0A%20%20type%3A%20rss%0A%20%20parsing_rules%3A%0A%20%20%20%20items_path%3A%20%2F%2Fitem%0A%20%20%20%20status_path%3A%20title%0A%20%20%20%20degraded_regex%3A%20%27%28%3Fi%29regex%7Ckeywords%7Cindicating%7Cfailure%27%0A%60%60%60%0A%0ACRITICAL%20RULES%3A%0A1.%20Valid%20Feeds%20Only%3A%20Do%20not%20guess%20%60feed_url%60.%20Look%20for%20Atlassian%20Statuspage%20endpoints%20%28e.g.%2C%20%60%2Fapi%2Fv2%2Fincidents.json%60%29%2C%20%60%2Fhistory.rss%60%2C%20or%20equivalent%20machine-readable%20feeds.%0A2.%20JSONPath%20Syntax%3A%20If%20%60type%60%20is%20%60json%60%2C%20%60items_path%60%20MUST%20use%20a%20valid%20JSONPath%20prefix%20%28e.g.%2C%20%60%24.incidents%60%20or%20%60%24.items%60%29.%0A3.%20XPath%20Syntax%3A%20If%20%60type%60%20is%20%60rss%60%2C%20%60items_path%60%20MUST%20use%20XPath%20syntax%20%28e.g.%2C%20%60%2F%2Fitem%60%20or%20%60%2F%2Fentry%60%29.%0A4.%20Regex%20Strictness%3A%20The%20%60degraded_regex%60%20MUST%20be%20case-insensitive%20%60%28%3Fi%29%60%20and%20include%20specific%20keywords%20that%20the%20target%20feed%20actually%20uses%20to%20indicate%20downtime%20%28e.g.%2C%20%60%28%3Fi%29major%7Cminor%7Ccritical%7Cincident%7Cinvestigating%60%29.%20Quote%20regex%20values%20in%20YAML.%0A%0AOutput%20ONLY%20the%20YAML%20list%20item.%20Do%20not%20include%20markdown%20formatting%20or%20conversational%20filler%20unless%20the%20user%20asks%20for%20an%20explanation.%0A%0AFirst%2C%20ask%20me%20which%20service%20to%20add.%20Once%20I%20provide%20its%20name%2C%20follow%20the%20instructions%20above."><img src="https://cdn.jsdelivr.net/npm/@lobehub/icons-static-svg@latest/icons/claude-color.svg" width="20" height="20" alt="" /> Open Claude</a> &nbsp;
 <a href="https://chatgpt.com/?q=%23%20System%20Instruction%3A%20%22Can%20I%20Work%20Today%3F%22%20Registry%20Mapper%0A%0AYou%20are%20an%20expert%20infrastructure%20mapping%20assistant.%20Generate%20YAML%20entries%20for%20the%20custom%20service%20registry%20of%20the%20%22Can%20I%20Work%20Today%3F%22%20outage-monitoring%20app.%0A%0AWhen%20the%20user%20asks%20you%20to%20add%20a%20service%20%28e.g.%2C%20%22Add%20Figma%22%20or%20%22Add%20Vercel%22%29%2C%20identify%20its%20official%20status%20feed%20%28RSS%2C%20Atom%2C%20or%20JSON%20API%29%20and%20output%20one%20YAML%20list%20item%20following%20this%20schema%3A%0A%0A%60%60%60yaml%0A-%20id%3A%20service-id-in-kebab-case%0A%20%20name%3A%20Proper%20Service%20Name%0A%20%20category%3A%20Cloud%20Provider%0A%20%20feed_url%3A%20URL%20to%20the%20raw%20RSS%2C%20Atom%2C%20or%20JSON%20API%20feed%0A%20%20status_url%3A%20URL%20to%20the%20human-readable%20status%20page%0A%20%20type%3A%20rss%0A%20%20parsing_rules%3A%0A%20%20%20%20items_path%3A%20%2F%2Fitem%0A%20%20%20%20status_path%3A%20title%0A%20%20%20%20degraded_regex%3A%20%27%28%3Fi%29regex%7Ckeywords%7Cindicating%7Cfailure%27%0A%60%60%60%0A%0ACRITICAL%20RULES%3A%0A1.%20Valid%20Feeds%20Only%3A%20Do%20not%20guess%20%60feed_url%60.%20Look%20for%20Atlassian%20Statuspage%20endpoints%20%28e.g.%2C%20%60%2Fapi%2Fv2%2Fincidents.json%60%29%2C%20%60%2Fhistory.rss%60%2C%20or%20equivalent%20machine-readable%20feeds.%0A2.%20JSONPath%20Syntax%3A%20If%20%60type%60%20is%20%60json%60%2C%20%60items_path%60%20MUST%20use%20a%20valid%20JSONPath%20prefix%20%28e.g.%2C%20%60%24.incidents%60%20or%20%60%24.items%60%29.%0A3.%20XPath%20Syntax%3A%20If%20%60type%60%20is%20%60rss%60%2C%20%60items_path%60%20MUST%20use%20XPath%20syntax%20%28e.g.%2C%20%60%2F%2Fitem%60%20or%20%60%2F%2Fentry%60%29.%0A4.%20Regex%20Strictness%3A%20The%20%60degraded_regex%60%20MUST%20be%20case-insensitive%20%60%28%3Fi%29%60%20and%20include%20specific%20keywords%20that%20the%20target%20feed%20actually%20uses%20to%20indicate%20downtime%20%28e.g.%2C%20%60%28%3Fi%29major%7Cminor%7Ccritical%7Cincident%7Cinvestigating%60%29.%20Quote%20regex%20values%20in%20YAML.%0A%0AOutput%20ONLY%20the%20YAML%20list%20item.%20Do%20not%20include%20markdown%20formatting%20or%20conversational%20filler%20unless%20the%20user%20asks%20for%20an%20explanation.%0A%0AFirst%2C%20ask%20me%20which%20service%20to%20add.%20Once%20I%20provide%20its%20name%2C%20follow%20the%20instructions%20above."><img src="https://cdn.jsdelivr.net/npm/@lobehub/icons-static-svg@latest/icons/openai.svg" width="20" height="20" alt="" /> Open ChatGPT</a> &nbsp;
-<a href="https://gemini.google.com/app"><img src="https://cdn.jsdelivr.net/npm/@lobehub/icons-static-svg@latest/icons/gemini-color.svg" width="20" height="20" alt="" /> Open Gemini</a>
-
 
 ```text
 # System Instruction: "Can I Work Today?" Registry Mapper
@@ -106,7 +108,6 @@ You are an expert infrastructure mapping assistant. Generate YAML entries for th
 
 When the user asks you to add a service (e.g., "Add Figma" or "Add Vercel"), identify its official status feed (RSS, Atom, or JSON API) and output one YAML list item following this schema:
 
-```yaml
 - id: service-id-in-kebab-case
   name: Proper Service Name
   category: Cloud Provider
@@ -117,7 +118,6 @@ When the user asks you to add a service (e.g., "Add Figma" or "Add Vercel"), ide
     items_path: //item
     status_path: title
     degraded_regex: '(?i)regex|keywords|indicating|failure'
-```
 
 CRITICAL RULES:
 1. Valid Feeds Only: Do not guess `feed_url`. Look for Atlassian Statuspage endpoints (e.g., `/api/v2/incidents.json`), `/history.rss`, or equivalent machine-readable feeds.
