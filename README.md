@@ -38,10 +38,10 @@ brew install --cask can-i-work-today
 
 Alternatively, download the macOS DMG from the releases page, open it, and drag **Can I Work Today** to Applications. The Homebrew cask and release workflow currently target Apple Silicon; an Intel macOS installer is not currently provided by that workflow.
 
-The release workflow does not configure Apple signing or notarization, so macOS Gatekeeper may block the app. If macOS blocks an app you have downloaded and trust, first try opening it from **System Settings > Privacy & Security**. As an alternative, similar to the guidance in [SourceGit](https://github.com/sourcegit-scm/sourcegit#installation), remove the quarantine attribute from the installed app:
+The release workflow does not configure Apple signing or notarization, so macOS Gatekeeper may block the app. If macOS blocks an app you have downloaded and trust, first try opening it from **System Settings > Privacy & Security**. As an alternative, remove the quarantine attribute from the installed app:
 
 ```sh
-xattr -dr com.apple.quarantine "/Applications/Can I Work Today.app"
+xattr -d com.apple.quarantine "/Applications/Can I Work Today.app"
 ```
 
 Removing quarantine bypasses a macOS security check; do this only if you trust the download and its source.
